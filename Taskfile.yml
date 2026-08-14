@@ -1,0 +1,138 @@
+version: '3'
+
+silent: true
+
+vars:
+  BIN_DIR: bin
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  help:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  build:
+    desc: Build all four service binaries
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - echo "building gateway"
+      - go build -trimpath -o {{.BIN_DIR}}/gateway ./services/gateway/cmd/gateway
+      - echo "building identity"
+      - go build -trimpath -o {{.BIN_DIR}}/identity ./services/identity/cmd/identity
+      - echo "building booking"
+      - go build -trimpath -o {{.BIN_DIR}}/booking ./services/booking/cmd/booking
+      - echo "building notification"
+      - go build -trimpath -o {{.BIN_DIR}}/notification ./services/notification/cmd/notification
+
+  fmt:
+    desc: Format Go source files
+    cmds:
+      - |
+        files="$(find . -type f -name '*.go' -not -path './.git/*')"
+        if [ -n "$files" ]; then gofmt -w $files; fi
+
+  vet:
+    desc: Run Go static analysis
+    cmds:
+      - go vet ./...
+
+  test:
+    desc: Run the test suite
+    cmds:
+      - go test ./...
+
+  test-race:
+    desc: Run the test suite with the race detector
+    cmds:
+      - go test -race ./...
+
+  run:
+    desc: Build and run all four process skeletons
+    cmds:
+      - task: build
+      - task: run-services
+
+  run-services:
+    deps: [run-gateway, run-identity, run-booking, run-notification]
+
+  run-gateway:
+    env:
+      SEATFLOW_ENV: local
+      HTTP_ADDR: :8080
+    cmds:
+      - ./{{.BIN_DIR}}/gateway
+
+  run-identity:
+    env:
+      SEATFLOW_ENV: local
+      GRPC_ADDR: :9091
+    cmds:
+      - ./{{.BIN_DIR}}/identity
+
+  run-booking:
+    env:
+      SEATFLOW_ENV: local
+      GRPC_ADDR: :9092
+    cmds:
+      - ./{{.BIN_DIR}}/booking
+
+  run-notification:
+    env:
+      SEATFLOW_ENV: local
+      GRPC_ADDR: :9093
+    cmds:
+      - ./{{.BIN_DIR}}/notification
+
+  proto:
+    desc: Generate protobuf code (planned for Issue 3)
+    cmds:
+      - |
+        echo "task proto is not available until protobuf contracts are added in Issue 3" >&2
+        exit 2
+
+  infra-up:
+    desc: Start local dependencies (planned for Issue 2)
+    cmds:
+      - |
+        echo "task infra-up is not available until local infrastructure is added in Issue 2" >&2
+        exit 2
+
+  infra-down:
+    desc: Stop local dependencies (planned for Issue 2)
+    cmds:
+      - |
+        echo "task infra-down is not available until local infrastructure is added in Issue 2" >&2
+        exit 2
+
+  migrate:
+    desc: Apply database migrations (planned for Issue 4)
+    cmds:
+      - |
+        echo "task migrate is not available until migrations are added in Issue 4" >&2
+        exit 2
+
+  docker-build:
+    desc: Build service images (planned for Issue 16)
+    cmds:
+      - |
+        echo "task docker-build is not available until images are added in Issue 16" >&2
+        exit 2
+
+  k8s-up:
+    desc: Install the Helm chart (planned for Issue 17)
+    cmds:
+      - |
+        echo "task k8s-up is not available until Helm deployment is added in Issue 17" >&2
+        exit 2
+
+  k8s-down:
+    desc: Remove the Helm release (planned for Issue 17)
+    cmds:
+      - |
+        echo "task k8s-down is not available until Helm deployment is added in Issue 17" >&2
+        exit 2
