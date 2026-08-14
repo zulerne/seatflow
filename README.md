@@ -2,7 +2,7 @@
 
 SeatFlow is a small event-seat reservation system built to demonstrate reliable concurrent booking in Go. Its central problem is simple to describe and difficult to implement correctly: when many users try to reserve the same seat, exactly one request may succeed.
 
-> **Status:** project charter complete; application bootstrap has not started.
+> **Status:** repository bootstrap complete; local infrastructure is the next milestone.
 
 ## Project Goals
 
@@ -50,4 +50,15 @@ See [the architecture overview](docs/architecture.md) for boundaries and consist
 
 ## Development
 
-Implementation begins with the repository bootstrap. The intended contributor interface will include `make fmt`, `make vet`, `make test`, `make test-race`, `make infra-up`, and `make run`; these commands do not exist yet.
+Requires Go 1.26 and Task 3. The bootstrap has no third-party Go dependencies.
+
+```bash
+task build      # build all four binaries into bin/
+task test       # run unit and process-level integration tests
+task test-race  # run the suite with Go's race detector
+task run        # start all four process skeletons; Ctrl-C stops them
+```
+
+Run `task help` to see which planned tasks become available in later issues. Each process validates configuration before starting. The Gateway requires `SEATFLOW_ENV` and `HTTP_ADDR`; the three internal services require `SEATFLOW_ENV` and `GRPC_ADDR`. `task run` supplies local defaults.
+
+All processes emit JSON logs with `service` and `environment` fields. Their `main` functions own the root signal context, and the shared lifecycle waits for SIGINT or SIGTERM before exiting cleanly. Resource-specific shutdown is intentionally deferred until those resources exist.
