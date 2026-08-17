@@ -4,6 +4,8 @@ silent: true
 
 vars:
   BIN_DIR: bin
+  COMPOSE_FILE: deploy/compose.yaml
+  COMPOSE_ENV_FILE: deploy/.env.example
 
 tasks:
   default:
@@ -96,18 +98,14 @@ tasks:
         exit 2
 
   infra-up:
-    desc: Start local dependencies (planned for Issue 2)
+    desc: Start local PostgreSQL, Redis, and Kafka and wait until healthy
     cmds:
-      - |
-        echo "task infra-up is not available until local infrastructure is added in Issue 2" >&2
-        exit 2
+      - docker compose --file {{.COMPOSE_FILE}} --env-file {{.COMPOSE_ENV_FILE}} up --detach --wait --wait-timeout 120
 
   infra-down:
-    desc: Stop local dependencies (planned for Issue 2)
+    desc: Stop local dependencies without deleting their data volumes
     cmds:
-      - |
-        echo "task infra-down is not available until local infrastructure is added in Issue 2" >&2
-        exit 2
+      - docker compose --file {{.COMPOSE_FILE}} --env-file {{.COMPOSE_ENV_FILE}} down --remove-orphans --timeout 30
 
   migrate:
     desc: Apply database migrations (planned for Issue 4)
