@@ -2,7 +2,7 @@
 
 SeatFlow is a small event-seat reservation system built to demonstrate reliable concurrent booking in Go. Its central problem is simple to describe and difficult to implement correctly: when many users try to reserve the same seat, exactly one request may succeed.
 
-> **Status:** repository bootstrap complete; local infrastructure is the next milestone.
+> **Status:** repository bootstrap and local infrastructure are complete; protobuf contracts are the next milestone.
 
 ## Project Goals
 
@@ -50,7 +50,7 @@ See [the architecture overview](docs/architecture.md) for boundaries and consist
 
 ## Development
 
-Requires Go 1.26 and Task 3. The bootstrap has no third-party Go dependencies.
+Requires Go 1.26, Task 3, Docker 20.10.4 or newer, and Docker Compose with `up --wait` support. The bootstrap has no third-party Go dependencies.
 
 ```bash
 task build      # build all four binaries into bin/
@@ -62,3 +62,74 @@ task run        # start all four process skeletons; Ctrl-C stops them
 Run `task help` to see which planned tasks become available in later issues. Each process validates configuration before starting. The Gateway requires `SEATFLOW_ENV` and `HTTP_ADDR`; the three internal services require `SEATFLOW_ENV` and `GRPC_ADDR`. `task run` supplies local defaults.
 
 All processes emit JSON logs with `service` and `environment` fields. Their `main` functions own the root signal context, and the shared lifecycle waits for SIGINT or SIGTERM before exiting cleanly. Resource-specific shutdown is intentionally deferred until those resources exist.
+
+## Local Infrastructure
+
+Start PostgreSQL, Redis, and the single-node Kafka KRaft broker and wait for all health checks:
+
+```bash
+task infra-up
+```
+
+The default local endpoints are:
+
+| Dependency | Host connection | Container-network connection |
+| --- | --- | --- |
+| PostgreSQL | `postgres://seatflow:seatflow@localhost:5432/seatflow?sslmode=disable` | `postgres://seatflow:seatflow@postgres:5432/seatflow?sslmode=disable` |
+| Redis | `localhost:6379` | `redis:6379` |
+| Kafka | `localhost:9092` | `kafka:19092` |
+
+The defaults live in `deploy/.env.example` and are local-development credentials, not production secrets. Override a value in the shell or point Task at another env file, for example `task infra-up COMPOSE_ENV_FILE=deploy/local.env`.
+
+All published ports bind to `127.0.0.1`. The Compose stack uses pinned `postgres:18.4-trixie`, `redis:8.2.8-bookworm`, and `apache/kafka:4.3.1` images. PostgreSQL's health check verifies that the configured database accepts connections, Redis must answer `PONG`, and Kafka must answer a metadata request. These checks detect an unavailable process or an unready endpoint; they do not prove that every query, command, or message will succeed.
+
+Named volumes survive `task infra-down`: `postgres-data` contains the PostgreSQL 18 cluster, `redis-data` contains append-only persistence, and `kafka-data` contains the KRaft metadata log, topic partitions, and consumer offsets. A plain container restart therefore preserves PostgreSQL data. Removing the volumes is an explicit destructive action and is not part of `task infra-down`.
+
+### Smoke checks
+
+Verify Redis:
+
+```bash
+docker compose --file deploy/compose.yaml exec -T redis redis-cli ping
+```
+
+Verify PostgreSQL persistence with a disposable marker:
+
+```bash
+docker compose --file deploy/compose.yaml exec -T postgres sh -c \
+  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "CREATE TABLE infra_persistence_check (value text NOT NULL); INSERT INTO infra_persistence_check VALUES ('\''survived'\'');"'
+
+docker compose --file deploy/compose.yaml restart postgres
+docker compose --file deploy/compose.yaml up --detach --wait postgres
+
+docker compose --file deploy/compose.yaml exec -T postgres sh -c \
+  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "TABLE infra_persistence_check; DROP TABLE infra_persistence_check;"'
+```
+
+Create a Kafka topic, produce one record, and consume it:
+
+```bash
+docker compose --file deploy/compose.yaml exec -T kafka \
+  /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 \
+  --create --if-not-exists --topic seatflow-smoke --partitions 1 --replication-factor 1
+
+printf 'seatflow-smoke\n' | docker compose --file deploy/compose.yaml exec -T kafka \
+  /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:19092 \
+  --topic seatflow-smoke
+
+docker compose --file deploy/compose.yaml exec -T kafka \
+  /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:19092 \
+  --topic seatflow-smoke --from-beginning --max-messages 1 --timeout-ms 10000
+```
+
+A broker accepts records. A topic is a named stream split into ordered partitions. A consumer group divides those partitions among its members and tracks offsets. A record key makes records with the same key choose the same partition, preserving their relative order within that partition.
+
+Stop the containers without deleting data:
+
+```bash
+task infra-down
+```
+
+This issue has no application transaction boundary, goroutines, retry loop, or idempotency behavior: only Docker-managed processes and health probes were added. A realistic failure is a port collision or unavailable image; `task infra-up` then fails instead of reporting a healthy stack. Docker owns each container's process lifecycle, Compose waits for health on startup, and `task infra-down` requests and waits for container shutdown.
